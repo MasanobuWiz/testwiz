@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<section name="Workbench">
+	<section name="org.eclipse.ui.texteditor.FindReplaceDialog">
+		<item key="wholeword" value="false"/>
+		<item key="incremental" value="false"/>
+		<item key="isRegEx" value="false"/>
+		<item key="y" value="61"/>
+		<item key="selection" value="static fainal int"/>
+		<item key="wrap" value="false"/>
+		<item key="x" value="1012"/>
+		<item key="casesensitive" value="true"/>
+		<list key="findhistory">
+			<item value="#define"/>
+			<item value="static "/>
+			<item value=",{"/>
+			<item value="&#x09; { "/>
+			<item value="            "/>
+			<item value="&#x09;#define "/>
+			<item value="},"/>
+			<item value=" { {"/>
+		</list>
+		<list key="replacehistory" value=" { {">
+			<item value="static fainal int"/>
+			<item value=""/>
+			<item value=",new int[]{"/>
+			<item value="new int[]{"/>
+			<item value="new TSignal( new int[]"/>
+			<item value="="/>
+			<item value="&#x09;static final int "/>
+			<item value="),"/>
+		</list>
+	</section>
+</section>

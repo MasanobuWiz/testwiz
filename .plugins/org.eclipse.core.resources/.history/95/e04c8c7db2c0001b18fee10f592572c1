@@ -1,0 +1,393 @@
+/* --------------------------------------------------------------------------------------------------
+ *  ひとつのまとまった文書単位から，そこに出現する名詞と動詞の出現頻度(回数)を
+ *  抽出する．
+ *  
+ *  初期バージョン CollocationMaker.java を元にして作成
+ *  取り扱う文書は以下の構成のテキストとする．
+ *  
+ *  　ファイル ::= 文書単位 { 文書単位 }
+ *  　文書単位 ::= 開始行
+ *  　　　　　　　　商品名記述行
+ *                  参照URL記述行
+ *                  文章 { 文章 }
+ *                 終了行
+ *    文章 ::= <通常の行イメージとする>
+ *    開始行 ::= ">>>-->>-->"
+ *    終了行 ::= "<<<--<<--<"
+ *  
+ *  2007/02/20
+ *  
+ */
+
+package TfIdf;
+
+import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+
+import net.java.sen.StringTagger;
+import net.java.sen.Token;
+
+/*
+ * 構成及び実行--クラスパス--ユーザエントリに
+ * 　commons-login.jar-C:\sen-1.2.2.1\lib
+ * を外部Jarとして追加すること
+ */
+class CollNoun {
+
+	public CollNoun()
+	{
+		cN    = new ArrayList(); // 連接単語の基礎単語を格納しておくリスト
+	    cHash = new ArrayList(); // 基礎単語のハッシュ値
+		no = 0;                  // 連結した基礎単語数
+		
+	}
+	
+	ArrayList cN;     // 連接単語の文字列．単語単位に格納される
+	ArrayList cHash;  // 同単語単位のハッシュ値
+	int		  no;     // 連結した基礎単語数
+	ArrayList cV;     // バイグラムとしての頻度．必ず，no-1個である．
+	// cN リストが，"連接","単語","の","文字","列" の5個だとすると
+	// cV リストには，<<連接,単語> の頻度>，<<単語,の> の頻度>，....
+	// が格納される．
+	
+	double	score;
+	int     repNo;   // 同一ワードとなる重複数．もちろん与えられた文章単位
+	
+	public void	addTerm( String tm,HashMap tHash,HashMap bHash )
+	{
+		//Object<String,Integer> obj = new Object<String,Integer>();
+		cHash.add( (Integer)tHash.get( tm ) );
+		cN.add( tm ); no++;
+		
+		// no は連接している基礎単語の個数．
+		// 2 以上とすれば，2つ以上の基礎単語が連接するものを集めることになる．
+		if ( no >= 1 ) calcScore( tHash,bHash );
+	}
+
+	void	calcScore( HashMap tHash,HashMap bHash )
+	{
+		score = 1.0;
+		for ( Iterator it = cN.listIterator(); it.hasNext(); )
+		{
+			String stA = (String)it.next();
+			if ( !it.hasNext() ) break;
+			String stB = (String)it.next();
+			List keys = new ArrayList();
+			keys.add( (Integer)tHash.get( stA ) ); keys.add( (Integer)tHash.get( stB ) );        		
+	    	int v = ((Integer)bHash.get( keys )).intValue() + 1;
+			score *= v;
+		}
+		double y = cN.size();
+		score = Math.pow( score,1.0/y );
+	}
+
+	public int		getNo()    { return no;    }
+	public int		getRepNo() { return repNo; }
+
+	public void	incRepNo() { repNo++; }
+}
+
+
+public class CollectTerm {
+
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args) {
+
+		String  file = new String();
+		String  enCode = new String();
+		
+		// 形態素解析で区分された単語にIDを振る．そのためのハッシュマップ
+		//   単語文字列 -> ID
+		HashMap termHash = new HashMap();
+		int topS   = 0;  // 文頭ID
+		int endS   = 1;  // 文末ID
+		int termID = 2;
+		String topSign = "-->>";
+		String endSign = "<<--";
+		// 上記ハッシュマップの逆キーとしたハッシュマップ
+		//   ID -> 単語文字列
+		HashMap termRevHash = new HashMap();
+		
+		// Bigram用のハッシュマップ
+		HashMap biGramHash = new HashMap();
+		
+		CollNoun[] collBox = new CollNoun[10000];
+		int  nColl = 0;
+				
+		try {
+            if (args.length != 2) {
+                System.out
+                        .println("usage: java CollocationMaker <ファイル名> <エンコーディング>");
+                file = "Data\\商品説明文.txt";
+                enCode = "Windows-31J";
+                //System.exit(1);
+            }
+            else {
+            	file = args[0];  enCode = args[1];
+            }
+
+            BufferedReader br = new BufferedReader(new InputStreamReader(
+                    new FileInputStream( file ), enCode));
+            StringTagger tagger = StringTagger.getInstance( "C:\\sen-1.2.2.1\\conf\\sen.xml" );
+
+        	termHash.put( topSign,new Integer(topS) );
+        	termRevHash.put( new Integer(topS),topSign );
+        	termHash.put( endSign,new Integer(topS) );
+        	termRevHash.put( new Integer(endS),endSign );
+          
+        	String  line;
+            while( true ) 
+            {
+            	if ( (line = br.readLine()) == null ) break;
+            	
+            	if ( line.contains( ">>>-->>-->" ) )
+            	{	// 文書単位の初期化処理．各単語の出現頻度をクリアしておく.
+            		// 即ち，現時点でのcollBoxの要素の出現頻度を 0 にしておく．
+            		for( int i = 0; i < nColl; i++ )
+            		{
+            			collBox[i].repNo = 0;
+            		}
+            		// 商品名記述行を読み込む
+            		line = br.readLine();
+
+            		// URL記述行を読み込む
+            		line = br.readLine();
+            	}
+            	if ( line.contains( "<<<--<<--<" ) )
+            	{	// 文書単位がここで終了. なので，文書単位の結果を出力する．
+                    
+                    //printBiGram( termHash,termRevHash,biGramHash );
+                    printLRCollocation( termHash,termRevHash,biGramHash );
+                	printCollBox( collBox,nColl );            		
+            	}
+            	
+            	Token[] token = tagger.analyze( line );
+            	if ( token == null ) continue;
+
+                int biGrmA = topS; int biGrmB = 0;
+            	int nT = token.length;
+            	for( int tIdx = 0; tIdx < nT; tIdx++ )
+            	{
+                    if ( !termHash.containsKey( token[tIdx].getBasicString() ) )
+                    {	// ハッシュテーブルに未登録なら登録する．
+                    	termHash.put( token[tIdx].getBasicString(),new Integer(termID) ); biGrmB = termID;
+                    	termRevHash.put( new Integer(termID),token[tIdx].getBasicString() );
+                    	termID++;
+                    }
+                    else
+                    {	// 登録済みなら，その登録値を使用する．
+                    	biGrmB = ((Integer)termHash.get( token[tIdx].getBasicString() )).intValue();
+                    }
+                    
+                    // 新たに２つ組のキーを作る．
+            		List keys = new ArrayList();
+            		keys.add( new Integer(biGrmA) ); keys.add( new Integer(biGrmB) );        		
+                    // ２つのキーデータが登録済みなら，その連想値をカウントアップする
+                    if ( biGramHash.containsKey(keys) )
+                    {
+                    	int v = ((Integer)biGramHash.get( keys )).intValue();
+                    	v++;
+                    	biGramHash.put( keys,new Integer(v));
+                    }
+                    else // 未登録なら新たなキーを作成してカウンタを，1 としておく 
+                    {
+                		biGramHash.put( keys,new Integer(1) );                	
+                    }
+                    
+                    /*
+                    System.out.println(
+                    	token[tIdx].getBasicString() + "\t" 
+    			      	+ token[tIdx].getPos() + "\t" 
+    			        + token[tIdx].getAddInfo() + "\t" 
+    			        + token[tIdx].getTermInfo() + "\t"
+                    );
+                    */
+                    
+                    biGrmA = biGrmB;
+            		
+            	}
+            	// 文末のための２つ組のキーを作る．
+            	List keys = new ArrayList();
+            	keys.add( new Integer(biGrmA) ); keys.add( new Integer(endS) );        		
+            	// そのバイグラムを登録する．カウンタは 1．
+            	biGramHash.put( keys,new Integer(1) );                	
+
+            	nColl = findCollTerm( token,collBox,nColl,termHash,biGramHash );
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+	}
+	
+	// 名詞や名詞相当の単語が連接している部分を発見する．
+	static int findCollTerm( Token[] token,CollNoun collBox[],int nColl,
+										HashMap tHash,HashMap bHash )
+	{
+		boolean nFlag = false;
+		CollNoun coll  = null;
+		
+        int nT = token.length;
+        for( int tIdx = 0; tIdx < nT; tIdx++ )
+		{
+            if ( isNoun( token[tIdx].getPos() ) )
+            {
+            	if ( !nFlag )
+                {	// 名詞発見
+                	nFlag = true;
+                	//collBox[nColl] = new CollNoun();
+                	//collBox[nColl].addTerm( token[tIdx].getBasicString(),tHash,bHash );
+            		coll = new CollNoun();
+                	coll.addTerm( token[tIdx].getBasicString(),tHash,bHash );
+                }
+                else
+                {	// 名詞が続いている間追加していく
+                	//collBox[nColl].addTerm( token[tIdx].getBasicString(),tHash,bHash );
+                	coll.addTerm( token[tIdx].getBasicString(),tHash,bHash );
+                }
+            }
+            else
+            {
+              	if ( nFlag )
+                {	// 直前まで名詞だった．
+              		if ( !isExist( collBox,nColl,coll ) )  // すでに名詞は存在したか．
+              		{
+                    	collBox[nColl] = coll;
+                    	collBox[nColl].incRepNo();
+                    	nColl++;
+              		}
+                	nFlag = false;
+                }
+            }
+		}
+		
+		return nColl;
+	}
+
+	/* ------------------------------------------------------------------------------------------
+	 * 連接名詞の集合(collBox[])に，すでに存在しているか否かをチェックする．
+	 * チェックは，連接名詞を構成する基礎単語のハッシュ値同士の比較で行う．
+	 */
+	static boolean isExist( CollNoun collBox[],int nC,CollNoun coll )
+	{
+		for( int i = 0; i < nC; i++ )
+		{
+			int aS = coll.cHash.size();
+			int bS = collBox[i].cHash.size();
+			if ( aS != bS ) continue;
+			
+			// サイズが一致している．
+			boolean flag = true;
+			for( int n = 0; n < aS; n++ )
+			{
+				if ( collBox[i].cHash.get(n) != coll.cHash.get(n) ) flag = false;
+			}
+			
+			if ( flag )
+			{	// 単語は登録済みなので，重複数をカウントアップする．
+				collBox[i].incRepNo();
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	static boolean isNoun( String term )
+	{
+		if ( term.contains( "接頭詞-" ) ) return true;
+		if ( term.contains( "名詞-" ) )   return true;
+		
+		return false;
+	}
+	
+	static void printCollBox( CollNoun collBox[],int nC )
+	{
+		int  icc = 0;
+
+		System.out.println();
+		System.out.println( "連接名詞探索結果 ---------------------------" );
+		for( int ic = 0; ic < nC; ic++ )
+		{
+			int nR = collBox[ic].getRepNo();
+			if ( nR == 0 ) continue;
+			int nn = collBox[ic].no;
+			ArrayList aL = collBox[ic].cN;
+			double  sc = collBox[ic].score;
+			
+			if ( sc <= 0.0 ) continue;
+			icc++;
+			System.out.print( "  " );
+			for( int j = 0; j < nn; j++ )
+			{
+				System.out.print( aL.get( j ) );
+			}
+			System.out.println( "  ["+nR+", "+sc+"]" );
+		}
+		System.out.println( "探索個数："+nC+"  有効連接名詞数："+icc );
+	}
+	
+	static void printBiGram( HashMap termHash,HashMap termRevHash,HashMap biGramHash )
+	{
+        int  n = 0;
+		System.out.println( "単語の数："+termHash.size()+"  バイグラム数："+biGramHash.size() );
+        
+		for( Iterator bi = biGramHash.keySet().iterator(); bi.hasNext(); )
+		{
+			List keys = (List)bi.next();
+			String  aa = (String)termRevHash.get( keys.toArray()[0] );
+			String  bb = (String)termRevHash.get( keys.toArray()[1] );
+			int nn = ((Integer)biGramHash.get( keys )).intValue();
+			
+			System.out.println( n + "： " + aa+", "+bb+"  ["+nn+"]" );
+			n++;
+		}
+	}
+	
+	static void printLRCollocation( HashMap termHash,HashMap termRevHash,HashMap biGramHash )
+	{
+        int  nSize = termHash.size();
+		System.out.println( "単名詞バイグラムと左右連接単名詞頻度 ----------------------" );
+        
+		for( int id = 2; id < nSize; id++ )
+		{
+			String  term = (String)termRevHash.get( new Integer(id) );
+			System.out.println( "'"+term+"' ---------------" );
+
+			// 注目単語の右方連接リストを集める．
+			for( Iterator bi = biGramHash.keySet().iterator(); bi.hasNext(); )
+			{
+				List keys = (List)bi.next();
+				int iA = ((Integer)(keys.toArray()[0])).intValue();
+				if ( id == iA )
+				{
+					String  aa = (String)termRevHash.get( keys.toArray()[0] );
+					String  bb = (String)termRevHash.get( keys.toArray()[1] );
+					int nn = ((Integer)biGramHash.get( keys )).intValue();
+					System.out.println( "  " + aa + " >> "+bb+"  ["+nn+"]" );					
+				}
+			}
+			
+			// 注目単語の左方連接リストを集める．
+			for( Iterator bi = biGramHash.keySet().iterator(); bi.hasNext(); )
+			{
+				List keys = (List)bi.next();
+				int iB = ((Integer)(keys.toArray()[1])).intValue();
+				if ( id == iB )
+				{
+					String  aa = (String)termRevHash.get( keys.toArray()[0] );
+					String  bb = (String)termRevHash.get( keys.toArray()[1] );
+					int nn = ((Integer)biGramHash.get( keys )).intValue();
+					System.out.println( "  " + aa + " << "+bb+"  ["+nn+"]" );					
+				}
+			}
+		}
+	}
+}

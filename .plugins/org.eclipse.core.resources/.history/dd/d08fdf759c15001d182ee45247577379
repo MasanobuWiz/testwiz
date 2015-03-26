@@ -1,0 +1,206 @@
+package SelfOrganizingMap;
+
+import java.util.Random;
+
+public class SelfOrganizingMap
+{
+	private int nOColumn;
+	private int nORow;
+	private int dimILayer; // 入力ベクトルの次元 = 入力層のニューロン数
+
+	// 入力層のニューロン
+	private double[]   inputUnit;
+	// 出力層のニューロン
+	private double[][] outputUnit;
+	// 入力層のニューロンと出力層のニューロンの結合重み
+	private double[][][] weight;
+	
+	// 出力層のニューロンに割り付けられたマッピング情報．必要なら使用する．
+	private int[][] mappedKind;
+
+	protected double learnRate  = 0.1;
+	protected double learnDecayRatio = 0.99;
+
+	protected double updateRadius     = 0.0;
+	protected double radiusDecayRatio = 0.999;
+
+	protected Coord   top = new Coord( 0,0 );
+
+	public Random randG = new Random();
+	
+	public void setUpdateRadius( double radius )	{ updateRadius = radius; }
+    public void setInputUnit( int id,double v )     	{ inputUnit[id] = v;       }
+    public void setMappedKind( int row,int col,int id )
+    {
+    	mappedKind[row][col] = id;
+    }
+    public void setWeight( int row,int col,int id,double w ) { weight[row][col][id] = w; }
+
+    public double getInputUnit( int id )	{ return inputUnit[id]; }
+    public double getWeight( int row,int col,int id ) { return weight[row][col][id]; }
+    public int getMappedKind( int row,int col ) {	return mappedKind[row][col]; }
+    
+	public Coord	getTop()		{ return top;		 }
+	public int		getDimILayer()	{ return dimILayer; }
+	public int		getNOColumn()	{ return nOColumn;  }
+	public int		getNORow()		{ return nORow;     }
+
+	public SelfOrganizingMap( int nDim,int nGrow,int nGcol,long seed )
+	{
+		dimILayer = nDim;
+		nOColumn  = nGcol;
+		nORow     = nGrow;
+		randG.setSeed( seed );
+	}
+
+	public void initializeSOM()
+	{
+		// 入力層のベクトル(dimILayer次元)の領域を確保
+		inputUnit  = new double[dimILayer];
+
+		// 出力層のベクトル(2次元 nOLayerW×nOLayerH)の領域を確保
+		outputUnit = new double[nORow][nOColumn];
+
+		// 入力層と出力層の結合重み領域を確保
+		weight = new double[nORow][nOColumn][dimILayer];
+
+		// 出力層の写像情報の領域を確保
+		mappedKind = new int[nORow][nOColumn];
+
+		initializeWeight();
+	}
+
+	public void initializeWeight()
+	{
+		learnRate = 0.1;
+
+		for ( int row = 0; row < nORow; row++ )
+		{
+			for ( int col = 0; col < nOColumn; col++ )
+			{
+				for ( int d = 0; d < dimILayer; d++ )
+				{
+					//weight[row][col][d] = 0.0; 
+					weight[row][col][d] = 0.5 + ( 0.2*randG.nextDouble() - 0.1 );
+				}
+			}
+		}
+	}
+
+	public void trainSOM()
+	{
+		// 出力層における勝者ユニットを求める．
+		// 勝者ユニットの位置は，top.xとtop.y としている．
+		pickWinner();
+
+		// その勝者ユニットを中心とした更新領域のユニットに
+		// 結合している重みを更新する．
+		updateWeight();
+
+		learnRate = 0.1 + ( ( learnRate - 0.1 )*learnDecayRatio );
+		updateRadius = 1.0 + ( ( updateRadius - 1.0 )*radiusDecayRatio );
+	}
+
+	public void pickWinner()
+	{
+		top.x = 0;
+		top.y = 0;
+		
+		// 出力層における勝者ユニットを求める．
+		outputUnit[top.y][top.x] = calculateDistance( weight[top.y][top.x],inputUnit );
+		double best  = outputUnit[top.y][top.x];
+		double worst = outputUnit[top.y][top.x];
+
+		for (int row = 0; row < nORow; row++)
+		{
+			for (int col = 0; col < nOColumn; col++)
+			{
+				outputUnit[row][col] = calculateDistance( weight[row][col],inputUnit );
+				if ( outputUnit[row][col] < best )
+				{
+					best = outputUnit[row][col];
+					top.y = row;
+					top.x = col;
+				}
+				else if ( outputUnit[row][col] > worst )
+				{
+					worst = outputUnit[row][col];
+				}
+			}
+		}
+    }
+
+	/* -----------------------------------------------------------------------------------
+	 * 勝者ユニット(top.xとtop.y)を中心とした，更新領域内のユニットに結合している
+	 * 重みを更新する．
+	 * 更新領域は，矩形領域としている．
+	 */
+	final private void updateWeight()
+	{
+		int ur = (int)Math.round( updateRadius );
+		int w1 = top.x - ur;
+		int h1 = top.y - ur;
+		int w2 = top.x + ur;
+		int h2 = top.y + ur;
+		double[] vv = null;
+
+		// 更新領域内のユニットに結合している重みを更新する
+		for( int row = h1; row <= h2; row++ )
+		{
+			int dh = row - top.y;
+			int nh = (row + nORow)%nORow;
+
+			for( int col = w1; col <= w2; col++ )
+			{
+				int dw = Math.min(Math.abs(col - top.x),Math.abs((col+nOColumn) - top.x) );
+				int nw = (col + nOColumn)%nOColumn;
+
+				double dist = Math.sqrt( dw*dw + dh*dh );
+
+				if ( dist < updateRadius )
+				{
+					vv = weight[nh][nw];
+					for( int i = 0; i < dimILayer; i++ )
+					{
+						vv[i] = vv[i] + learnRate*( inputUnit[i] - vv[i] );
+					}
+				}
+			}
+		}
+	}
+
+	final public double calculateDistance( double[] a,double[] b )
+	{
+		double sum = 0.0;
+		for( int i = 0; i < a.length; i++ )
+		{
+			double diff = a[i] - b[i];
+			sum += diff*diff;
+		}
+		
+		return Math.sqrt( sum );
+	}
+
+	final public double calculateCosineDistance( double[] a,double[] b )
+	{
+		double normA = 0.0;
+		double normB = 0.0;
+		double prod  = 0.0;
+		
+		for( int i = 0; i < a.length; i++ )
+		{
+			prod += a[i]*b[i];
+			normA += a[i]*a[i];
+			normB += b[i]*b[i];
+		}
+		
+		normA = Math.sqrt( normA );
+		normB = Math.sqrt( normB );
+
+		double dis;
+		if ( normA <= 0.00001 || normB <= 0.00001 ) dis = 0.0;
+		else dis = prod/(normA*normB);
+		
+		return dis;
+	}
+}
